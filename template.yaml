@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  OCR Textract
+  SAM Template for extracting data from an invoice using Textract
+
+Globals:
+  Function:
+    Timeout: 300 # Increased timeout for Textract processing
+    MemorySize: 512
+
+Resources:
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-documents"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt InvoiceDataExtraction.Arn
+
+  ResultsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-results"
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 300  # Match Lambda timeout
+      SqsManagedSseEnabled: true
+
+  InvoiceDataExtraction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: InvoiceDataExtractionFunction
+      Handler: com.epam.demo.invoice.InvoiceHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 1024
+      EventInvokeConfig:
+        DestinationConfig:
+          OnSuccess:
+            Destination:
+              Ref: ResultsQueue
+            Type: SQS
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "${AWS::StackName}-documents"
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ResultsQueue.QueueName
+            Environment:
+              Variables:
+                RESULTS_QUEUE_URL: !Ref ResultsQueue
+
+        - Statement:
+            - Effect: Allow
+              Action:
+                - textract:StartDocumentAnalysis
+                - textract:GetDocumentAnalysis
+              Resource: '*'
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt InvoiceDataExtraction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Sub ${AWS::AccountId}
+      SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-documents
+
+Outputs:
+  BucketName:
+    Description: "S3 Bucket Name"
+    Value: !Ref DocumentsBucket
+  FunctionArn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt InvoiceDataExtraction.Arn
+  ResultsQueueURL:
+    Description: "URL of the results queue"
+    Value: !Ref ResultsQueue
+  ResultsQueueARN:
+    Description: "ARN of the results queue"
+    Value: !GetAtt ResultsQueue.Arn
