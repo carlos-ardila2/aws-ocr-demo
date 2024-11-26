@@ -91,7 +91,7 @@ public class InvoiceHandler implements RequestHandler<S3Event, String> {
                         String itemsJson = mapper.writeValueAsString(items);
                         sqsClient.sendMessage(
                                 SendMessageRequest.builder()
-                                        .queueUrl(System.getenv("SQS_QUEUE_URL"))
+                                        .queueUrl(System.getenv("AWS_SQS_QUEUE_URL"))
                                         .messageBody(itemsJson)
                                         .build()
                         );
