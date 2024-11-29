@@ -1,4 +1,3 @@
-```markdown
 # Invoice Data Extraction Function
 
 ## Purpose
